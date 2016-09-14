@@ -185,7 +185,7 @@ int main(int argc, char** argv){
 	fs3FileName = fs1FileName;
 	fs1FileName += "_hash.txt";
 	fs2FileName += "_probe_kmeans.csv";
-	fs3FileName += "_custom.csv";
+	fs3FileName += "_customer.csv";
 	fs1.open(fs1FileName, ios::out | ios::trunc);
 	fs2.open(fs2FileName, ios::out | ios::trunc);
 	fs3.open(fs3FileName, ios::out | ios::trunc);
