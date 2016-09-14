@@ -506,6 +506,7 @@ public:
 		index_type idx;
 		content_type content;
 	} value_type;
+	
 	typedef size_t size_type;
 	typedef ptrdiff_t difference_type;
 	typedef value_type* pointer;
@@ -517,6 +518,8 @@ public:
 	typedef HashIterator<Hash<index_type, content_type>> iterator;
 	typedef typename Table::iterator titer;
 	typedef typename Bucket::iterator biter;
+
+	
 
 	template<class C, C> struct HFChecker; //Hash Function Checker
 

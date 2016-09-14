@@ -5,11 +5,23 @@
 #include <string>
 #include <ctime>
 #include <fstream>
+#include <algorithm>
 #include "CSVReader.h"
 #include "hash.h"
 #include "KMeans.h"
 
 using namespace std;
+
+string itoa(int num)
+{
+	string str = "";
+	while (num)
+	{
+		str = str + static_cast<char>(num % 10 + '0');
+		num /= 10;
+	}
+	return str;
+}
 
 enum Label_CSV{
 	NO,
@@ -28,20 +40,21 @@ struct Content{
 	set<string> sProbeRqSSID; //SSID of probe request
 	vector<double> vProbeRqFlag;
 	int group;
+	int httpCounter;
 };
 
 class distFunction{
 public:
 	distFunction(){}
-	/*double operator()(Content *a, Content *b){
+	double operator()(Content *a, Content *b){
 		double sum = 0;
 		for (int i = 0; i < a->vProbeRqFlag.size(); ++i)
 		{
 			sum += abs(a->vProbeRqFlag[i] - b->vProbeRqFlag[i]);
 		}
 		return sum;
-	}*/
-	double operator()(Content *a, Content *b){
+	}
+	/*double operator()(Content *a, Content *b){
 		double sumA = 0, sumB = 0;
 		for (int i = 0; i < a->vProbeRqFlag.size(); ++i)
 		{
@@ -49,6 +62,24 @@ public:
 			sumB += b->vProbeRqFlag[i];
 		}
 		return abs(sumA-sumB);
+	}*/
+};
+
+class distFuncTS{
+public:
+	distFuncTS(){}
+	double operator()(Content *a, Content *b){
+		double sumA = 0, sumB = 0;
+		for (int i = 0; i < a->vProbeRqFlag.size(); ++i)
+		{
+			sumA += a->vProbeRqFlag[i];
+			sumB += b->vProbeRqFlag[i];
+		}
+		sumA = abs(sumA - sumB) / a->vProbeRqFlag.size(); //normalize
+		sumA += abs(atoi(a->comeTime.c_str()) - atoi(b->comeTime.c_str())) / 2 / 60 / 60; //comeTime: 2 hours a unit 
+		sumA += abs(atoi(a->goTime.c_str()) - atoi(a->comeTime.c_str()) - atoi(b->goTime.c_str()) + atoi(b->comeTime.c_str())) / 1 / 60 / 60 / 2; //leaveTime: 1 hours a unit, *0.5
+
+		return sumA;
 	}
 };
 
@@ -82,6 +113,49 @@ public:
 	}
 };
 
+class findCentFuncTS{
+public:
+	findCentFuncTS(){}
+	void operator()(Content *point, int len, Content *centroid, int n_cluster)
+	{
+		/*init array of comeTime goTime*/
+		double *comeTimeArr = new double[n_cluster], *goTimeArr = new double[n_cluster];
+		for (int i = 0; i < n_cluster; ++i)
+		{
+			comeTimeArr[i] = 0;
+			goTimeArr[i] = 0;
+		}
+		/* group element for centroids are used as counters */
+		for (int i = 0; i < n_cluster; ++i){
+			centroid[i].vProbeRqFlag.clear();
+			centroid[i].vProbeRqFlag.insert(centroid[i].vProbeRqFlag.begin(), point[0].vProbeRqFlag.size(), 0.0);
+			centroid[i].group = 0;
+		}
+		for (int i = 0; i < len; ++i)
+		{
+			for (int j = 0; j < point[i].vProbeRqFlag.size(); ++j)
+			{
+				centroid[point[i].group].vProbeRqFlag[j] += point[i].vProbeRqFlag[j];
+			}
+			++centroid[point[i].group].group;
+		}
+		for (int i = 0; i < len; ++i)
+		{
+			comeTimeArr[point[i].group] += atoi(point[i].comeTime.c_str());
+			goTimeArr[point[i].group] += atoi(point[i].goTime.c_str());
+		}
+		for (int i = 0; i < n_cluster; ++i)
+		{
+			for (int j = 0; j < centroid[i].vProbeRqFlag.size(); ++j)
+			{
+				centroid[i].vProbeRqFlag[j] /= centroid[i].group;
+			}
+			centroid[i].comeTime = itoa(comeTimeArr[i] / centroid[i].group);
+			centroid[i].goTime = itoa(goTimeArr[i] / centroid[i].group);
+		}
+	}
+};
+
 int main(int argc, char** argv){
 	clock_t START1, START2;
 
@@ -101,10 +175,23 @@ int main(int argc, char** argv){
 	cout << "Read complited, use: " << START1 << " msec" << endl;
 	Content content; //Device, come, go
 
-	fstream fs1, fs2;
-	fs1.open("hash.txt", ios::out | ios::trunc);
-	fs2.open("probe_kmeans.csv", ios::out | ios::trunc);
-	if (!fs1 || !fs2)
+	fstream fs1, fs2, fs3;
+
+	//deal with output files' names
+	string fs1FileName, fs2FileName, fs3FileName;
+	fs1FileName = argv[1];
+	fs1FileName = fs1FileName.substr(0, fs1FileName.find_last_of('.'));
+	fs2FileName = fs1FileName;
+	fs3FileName = fs1FileName;
+	fs1FileName += "_hash.txt";
+	fs2FileName += "_probe_kmeans.csv";
+	fs3FileName += "_custom.csv";
+	fs1.open(fs1FileName, ios::out | ios::trunc);
+	fs2.open(fs2FileName, ios::out | ios::trunc);
+	fs3.open(fs3FileName, ios::out | ios::trunc);
+
+	//check wheather the output files can be open
+	if (!fs1 || !fs2 || !fs3)
 	{
 		cout << "Can not open the output file." << endl;
 		return 1;
@@ -127,6 +214,9 @@ int main(int argc, char** argv){
 			(*hIter).content.sProbeRqSSID.insert(data[SSID][i]);
 			sAllProbe.insert(data[SSID][i]);
 		}
+		if (data[PROTO][i] == "HTTP" || data[PROTO][i] == "HTTP/XML"){
+			(*hIter).content.httpCounter++;
+		}
 		
 		if (myHash.find(data[HWDEST][i], hIter)){
 			(*hIter).content.goTime = data[TIME][i];
@@ -134,6 +224,9 @@ int main(int argc, char** argv){
 		else
 		{
 			myHash.insert(hIter, data[HWDEST][i], Content{ data[HWDEST][i], data[TIME][i], data[TIME][i] });
+		}
+		if (data[PROTO][i] == "HTTP" || data[PROTO][i] == "HTTP/XML"){
+			(*hIter).content.httpCounter++;
 		}
 		
 	}
@@ -169,6 +262,7 @@ int main(int argc, char** argv){
 	}
 	kmeansPoint = vContentHasProbe.data();
 	kmeansCent = lloyd(kmeansPoint, vContentHasProbe.size(), 5, distFunction(), findCentroidFunction());
+	//kmeansCent = lloyd(kmeansPoint, vContentHasProbe.size(), 5, distFuncTS(), findCentFuncTS());
 
 	double probeCount;
 	fs2 << "\"SrcAddr\",\"group\"";
@@ -193,4 +287,25 @@ int main(int argc, char** argv){
 		}
 		fs2 << endl;
 	}
+
+	fs3 << "\"HWAddress\",\"Come Time\",\"Go Time\",\"Leave Time\",\"HTTP Packets\",\"HTTP Interval\"" << endl;
+	class print_fs3_content
+	{
+		fstream *fs3Ptr;
+	public:
+		print_fs3_content(fstream *fsPtr) :fs3Ptr(fsPtr){}
+		void operator()(Hash<string, Content>::value_type item)
+		{
+			*fs3Ptr << "\"" << item.content.device << "\"";
+			*fs3Ptr << ",\"" << item.content.comeTime << "\"";
+			*fs3Ptr << ",\"" << item.content.goTime << "\"";
+			int leaveTime = atoi(item.content.goTime.c_str()) - atoi(item.content.comeTime.c_str());
+			*fs3Ptr << ",\"" << leaveTime << "\"";
+			*fs3Ptr << ",\"" << item.content.httpCounter << "\"";
+			if (item.content.httpCounter) *fs3Ptr << ",\"" << static_cast<int>(leaveTime / item.content.httpCounter) << "\"";
+			else *fs3Ptr << ",\"" << -1 << "\"";
+			*fs3Ptr << endl;
+		}
+	};
+	for_each(myHash.begin(), myHash.end(), print_fs3_content(&fs3));
 }
