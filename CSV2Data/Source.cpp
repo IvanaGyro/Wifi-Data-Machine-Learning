@@ -6,11 +6,15 @@
 #include <ctime>
 #include <fstream>
 #include <algorithm>
+#include <sstream>
+#include "any.h"
 #include "CSVReader.h"
+#include "CSVWriter.h"
 #include "hash.h"
 #include "KMeans.h"
 
 using namespace std;
+using namespace any_type;
 
 string itoa(int num)
 {
@@ -21,6 +25,18 @@ string itoa(int num)
 		num /= 10;
 	}
 	return str;
+}
+
+template <typename out, typename in>
+out atob(const in& I)
+{
+	static stringstream ss;
+	out O;
+	ss.str("");
+	ss.clear();
+	ss << I;
+	ss >> O;
+	return O;
 }
 
 enum Label_CSV{
@@ -288,24 +304,38 @@ int main(int argc, char** argv){
 		fs2 << endl;
 	}
 
-	fs3 << "\"HWAddress\",\"Come Time\",\"Go Time\",\"Leave Time\",\"HTTP Packets\",\"HTTP Interval\"" << endl;
-	class print_fs3_content
-	{
-		fstream *fs3Ptr;
-	public:
-		print_fs3_content(fstream *fsPtr) :fs3Ptr(fsPtr){}
-		void operator()(Hash<string, Content>::value_type item)
+	vector<any> vvCustomer;
+	vvCustomer.push_back(vector<string>()); //HWAddress
+	vvCustomer.push_back(vector<double>());    //Come Time
+	vvCustomer.push_back(vector<double>());    //Go Time
+	vvCustomer.push_back(vector<double>());    //Leave Time
+	vvCustomer.push_back(vector<int>());    //HTTP Packets
+	vvCustomer.push_back(vector<double>()); //HTTP Interval
+
+	for_each(myHash.begin(), myHash.end(), bind(
+		[](vector<any>& vvCustomer, decltype(*(myHash.begin())) item)
 		{
-			*fs3Ptr << "\"" << item.content.device << "\"";
-			*fs3Ptr << ",\"" << item.content.comeTime << "\"";
-			*fs3Ptr << ",\"" << item.content.goTime << "\"";
-			int leaveTime = atoi(item.content.goTime.c_str()) - atoi(item.content.comeTime.c_str());
-			*fs3Ptr << ",\"" << leaveTime << "\"";
-			*fs3Ptr << ",\"" << item.content.httpCounter << "\"";
-			if (item.content.httpCounter) *fs3Ptr << ",\"" << static_cast<int>(leaveTime / item.content.httpCounter) << "\"";
-			else *fs3Ptr << ",\"" << -1 << "\"";
-			*fs3Ptr << endl;
-		}
-	};
-	for_each(myHash.begin(), myHash.end(), print_fs3_content(&fs3));
+			stringstream ss;
+			double comeTime, goTime;
+			int httpPack;
+			any_cast<vector<string>>(vvCustomer[0]).push_back(item.content.device);
+			comeTime = atob<double>(item.content.comeTime);
+			goTime = atob<double>(item.content.goTime);
+			any_cast<vector<double>>(vvCustomer[1]).push_back(comeTime);
+			any_cast<vector<double>>(vvCustomer[2]).push_back(goTime);
+			any_cast<vector<double>>(vvCustomer[3]).push_back(goTime - comeTime);
+			httpPack = atob<double>(item.content.httpCounter);
+			any_cast<vector<int>>(vvCustomer[4]).push_back(httpPack);
+			if (httpPack)
+			{
+				any_cast<vector<double>>(vvCustomer[5]).push_back(static_cast<double>(goTime - comeTime) / static_cast<double>(httpPack));
+			}
+			else any_cast<vector<double>>(vvCustomer[5]).push_back(-1);
+		},
+		ref(vvCustomer),
+		placeholders::_1
+	));
+
+	write_CSV(fs3, vector<string>({ "HWAddress", "Come Time", "Go Time", "Leave Time", "HTTP Packets", "HTTP Interval" }), vvCustomer);
+
 }

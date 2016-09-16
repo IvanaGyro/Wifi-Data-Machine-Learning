@@ -67,7 +67,9 @@
     <ClCompile Include="Source.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="any.h" />
     <ClInclude Include="CSVReader.h" />
+    <ClInclude Include="CSVWriter.h" />
     <ClInclude Include="hash.h" />
     <ClInclude Include="KMeans.h" />
   </ItemGroup>
