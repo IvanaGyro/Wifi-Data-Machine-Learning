@@ -4,9 +4,6 @@
 #include <cstring>
 #include <cstdint>
 
-#include <exception>
-#include <typeinfo>
-
 
 //define the buffer size accroding to number of bits of compiler
 #if PTRDIFF_MAX==0x7fffffff  //32-bit compiler
