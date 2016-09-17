@@ -2,6 +2,18 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cstdint>
+
+#include <exception>
+#include <typeinfo>
+
+
+//define the buffer size accroding to number of bits of compiler
+#if PTRDIFF_MAX==0x7fffffff  //32-bit compiler
+	#define CSVREADER_BUF_SIZE 0x20000000    //500MB
+#else                        //64-bit compiler
+	#define CSVREADER_BUF_SIZE 0x40000000     //1GB
+#endif
 
 
 class myString{
@@ -48,83 +60,102 @@ void clearvv(std::vector<std::vector<T>>& vv){
 	vv.clear();
 }
 
-int readCSV(char* file, std::vector<std::vector<std::string>>& data){
-	std::string line;
-	std::fstream fs;
+void parse_csv(std::string& match, std::string& line)
+{
+	int begIdx, endIdx;
+
+	begIdx = 0;
+	if (line[begIdx] == ',') ++begIdx;
+	if (line[begIdx] == '"') // in double quote
+	{
+		++begIdx;
+		endIdx = begIdx;
+		while (line[endIdx] != '"' || (line[endIdx] == '"' && line[endIdx + 1] == '"'))
+		{
+			if (line[endIdx] != '"') ++endIdx;
+			else
+			{
+				line.erase(endIdx, 1);
+				endIdx += 1;
+			}
+		}
+		match = line.substr(begIdx, endIdx - begIdx);
+		line = line.substr(endIdx + 1);
+	}
+	else   // not in double quote
+	{
+		endIdx = begIdx;
+		while (line[endIdx] != ',' && line[endIdx] != 0) ++endIdx;
+		match = line.substr(begIdx, endIdx - begIdx);
+		line = line.substr(endIdx);
+	}
+}
+
+void line2vv(std::vector<std::vector<std::string>>& data, std::string& line, bool& isInit)
+{
+	std::string match;
+	line += static_cast<char>(0);
+
+	if (!isInit)
+	{
+		while (line.length() > 1)
+		{
+			parse_csv(match, line);
+			data.push_back(std::vector<std::string>(1, match));
+		}
+		isInit = true;
+	}
+	else
+	{
+		int attrcount = 0;
+		while (line.length() > 1)
+		{
+			parse_csv(match, line);
+			data[attrcount].push_back(match);
+			++attrcount;
+		}
+	}
+}
+
+int readCSV(std::fstream& fs, std::vector<std::vector<std::string>>& data){
 	char *buf, *ptr, *ptr2;
-	int state = 0, idx, filesize, attrcount;
+	bool isInit = false;
 	
-	fs.open(file, std::ios::in | std::ios::binary);
-	if (!fs) return 0;
-	fs.seekg(0, std::ios::end);
-	filesize = static_cast<int>(fs.tellg());
-	fs.seekg(0, std::ios::beg);
-	buf = new char[filesize + 2];
-	ptr = buf;
-	fs.read(buf, filesize);
-	if (buf[filesize - 1] == '\n') buf[filesize] = 0;
-	else{
-		buf[filesize] = '\n';
-		buf[filesize + 1] = 0;
-	}
-
+	//allocate buffer
+	buf = new char[CSVREADER_BUF_SIZE];
+	memset(buf, 0, CSVREADER_BUF_SIZE);
+	
 	clearvv(data);
-	
-	ptr2 = strchr(ptr, '\n');
-	line.assign(ptr, ptr2 - ptr);
-	ptr = ptr2 + 1;
-	for (unsigned int i = 0; i < line.length(); ++i){
-		if (state == 0){ // not in string
-			if (line[i] == '"'){
-				state = 1;
-				idx = i + 1;
-			}
+
+	std::string line;
+	ptr = buf;
+	while (!fs.eof())
+	{
+		fs.read(ptr, CSVREADER_BUF_SIZE - (ptr - buf));
+		ptr = buf;
+		int count = 0;
+		while ((ptr2 = strchr(ptr, '\n')) != NULL)
+		{
+			line.assign(ptr, ptr2 - ptr);
+			ptr = ptr2 + 1;
+			line2vv(data, line, isInit);
+			count++;
 		}
-		else if (state == 1){
-			while (state == 1){
-				if (line[i] != '"') i++;
-				else if (line[i + 1] == '"'){
-					line.erase(i, 1);
-					i++;
-				}
-				else{
-					data.push_back(std::vector<std::string>(1, line.substr(idx, i - idx)));
-					state = 0;
-				}
-			}
+		if (buf != ptr)
+		{
+			strcpy_s(buf, CSVREADER_BUF_SIZE - (ptr - buf), ptr);
+			ptr = buf + CSVREADER_BUF_SIZE - (ptr - buf);
+			memset(ptr, 0, CSVREADER_BUF_SIZE - (ptr - buf));
 		}
 	}
-
-	while (*ptr){
-
-		ptr2 = strchr(ptr, '\n');
+	while ((ptr2 = strchr(ptr, '\n')) != NULL)
+	{
 		line.assign(ptr, ptr2 - ptr);
-		ptr = ptr2 + 1;
-
-		attrcount = 0;
-		for (unsigned int i = 0; i < line.length(); i++){
-			if (state == 0){ // not in string
-				if (line[i] == '"'){
-					state = 1;
-					idx = i + 1;
-				}
-			}
-			else if (state == 1){
-				while (state == 1){
-					if (line[i] != '"') i++;
-					else if (line[i + 1] == '"'){
-						line.erase(i, 1);
-						i++;
-					}
-					else{
-						data[attrcount].push_back(line.substr(idx, i - idx));
-						attrcount++;
-						state = 0;
-					}
-				}		
-			}
-		}
+		line2vv(data, line, isInit);
 	}
-	return 1;
+	line = ptr;
+	line2vv(data, line, isInit);
+	
+	return 0;
 }
 

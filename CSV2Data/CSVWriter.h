@@ -9,7 +9,7 @@
 #include <iomanip>
 
 
-int write_CSV(std::fstream& outputF, std::vector<std::string> vTitle, std::vector<std::vector<std::string>> vContent)
+int write_CSV(std::fstream& outputF, std::vector<std::string>& vTitle, std::vector<std::vector<std::string>>& vContent)
 {
 	if (!outputF) return 1;
 	int numColumn;
@@ -36,7 +36,7 @@ int write_CSV(std::fstream& outputF, std::vector<std::string> vTitle, std::vecto
 	//write content
 	for (int i = 0; i < maxRow; ++i)
 	{
-		if (vContent.size() <= i) outputF << "\"\"";
+		if (vContent[0].size() <= i) outputF << "\"\"";
 		else outputF << "\"" << vContent[0][i] << "\"";
 		if (numColumn > 1)
 		{

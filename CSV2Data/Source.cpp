@@ -7,14 +7,15 @@
 #include <fstream>
 #include <algorithm>
 #include <sstream>
+#include <exception>
 #include "any.h"
 #include "CSVReader.h"
 #include "CSVWriter.h"
 #include "hash.h"
 #include "KMeans.h"
 
-using namespace std;
 using namespace any_type;
+using namespace std;
 
 string itoa(int num)
 {
@@ -120,7 +121,7 @@ public:
 		}
 		for (int i = 0; i < n_cluster; ++i)
 		{
-			cout << "centroid["<< i << "].group" << centroid[i].group << endl;
+			//cout << "centroid["<< i << "].group" << centroid[i].group << endl;
 			for (int j = 0; j < centroid[i].vProbeRqFlag.size(); ++j)
 			{
 				centroid[i].vProbeRqFlag[j] /= centroid[i].group;
@@ -172,24 +173,61 @@ public:
 	}
 };
 
+unsigned long long avalible_memory()
+{
+	char *mem = NULL;
+	unsigned long long size, offset;
+	//init
+	size = 1;
+
+	//increase size of allocation
+	while (mem == NULL)
+	{
+		mem = (char*)malloc(size);
+		if (mem)
+		{
+			free(mem);
+			mem = NULL;
+			size <<= 1;
+		}
+		else mem = (char*)1;
+	}
+
+	//decrease offset of size
+	offset = size >> 2;
+	size -= offset;
+	while (offset > 1024 * 1024 * 16)
+	{
+		offset >>= 1;
+		mem = (char*)malloc(size);
+		if (mem)
+		{
+			free(mem);
+			mem = NULL;
+			size += offset;
+		}
+		else
+		{
+			size -= offset;
+		}
+	}
+	return size - offset;  //return a safe value
+}
+
+
 int main(int argc, char** argv){
-	clock_t START1, START2;
+	clock_t START1;
+	string flag;
+	if (argc < 2 || argc > 3) return 1;
+	if (argc == 3) flag = argv[2];
+	
+	
 
-	while (argc != 2) return 0;
-	vector<vector<string>> data;
-	START1 = clock();
-	if (!readCSV(argv[1], data)){
-		cout << "Error: Can NOT read the csv file" << endl;
-		return 0;
-	}
-	for (int i = 1; i < data[0].size(); ++i){
-		data[HWSRC][i] = data[HWSRC][i].substr(0, data[HWSRC][i].find_first_of(" "));
-		data[HWDEST][i] = data[HWDEST][i].substr(0, data[HWDEST][i].find_first_of(" "));
-	}
-	START1 = clock() - START1;
+	//open input csv
+	fstream inputCSV;
+	inputCSV.open(argv[1], std::ios::in);
+	if (!inputCSV) return 1;  //can't open input file
 
-	cout << "Read complited, use: " << START1 << " msec" << endl;
-	Content content; //Device, come, go
 
 	fstream fs1, fs2, fs3;
 
@@ -210,44 +248,146 @@ int main(int argc, char** argv){
 	if (!fs1 || !fs2 || !fs3)
 	{
 		cout << "Can not open the output file." << endl;
+		system("pause");
 		return 1;
 	}
 
-	START1 = clock();
 	Hash<string, Content> myHash(126, new StringSum());
 	Hash<string, Content>::iterator hIter;
 	set<string> sAllProbe;
 
-	for (int i = 1; i < data[0].size(); ++i){
-		if (i % 100000 == 0) cout << "do " << i << " data" << endl;
-		if (myHash.find(data[HWSRC][i], hIter)){
-			(*hIter).content.goTime = data[TIME][i];
+	Content content; //Device, come, go
+
+	//check whether there is enough memory 
+	unsigned long long inputCSVSize, avaliMem;
+	bool memoryEnough;
+
+	inputCSV.seekg(0, inputCSV.end);
+	inputCSVSize = static_cast<unsigned long long>(inputCSV.tellg())*1.5 + CSVREADER_BUF_SIZE;
+	avaliMem = avalible_memory();
+	cout << "require memory: " << inputCSVSize / 1024 / 1024 << " MB" << endl;
+	cout << "avalible memory: " << avaliMem / 1024 / 1024 << " MB" << endl;
+	
+	if (inputCSVSize >= avaliMem || flag == "--line-by-line" || flag == "-l") memoryEnough = false;
+	else memoryEnough = true;
+
+
+	if (memoryEnough)  // enough memory 
+	{
+		cout << "memory is enough" << endl;
+		vector<vector<string>> data;
+		inputCSV.seekg(0, inputCSV.beg);
+	
+		try{
+			START1 = clock();
+			readCSV(inputCSV, data);
+			for (int i = 1; i < data[0].size(); ++i){
+				data[HWSRC][i] = data[HWSRC][i].substr(0, data[HWSRC][i].find_first_of(" "));
+				data[HWDEST][i] = data[HWDEST][i].substr(0, data[HWDEST][i].find_first_of(" "));
+			}
+			START1 = clock() - START1;
+			cout << "Read complited, use: " << START1 << " msec" << endl;
+
+			/*use hash to sort data*/
+			START1 = clock();
+			for (int i = 1; i < data[0].size(); ++i){
+				if (i % 1000000 == 0) cout << "do " << i << " data" << endl;
+				if (myHash.find(data[HWSRC][i], hIter)){
+					(*hIter).content.goTime = data[TIME][i];
+				}
+				else{
+					myHash.insert(hIter, data[HWSRC][i], Content{ data[HWSRC][i], data[TIME][i], data[TIME][i] });
+				}
+				if (data[SUBTYPE][i] == "Probe Request" && data[SSID][i] != ""){
+					(*hIter).content.sProbeRqSSID.insert(data[SSID][i]);
+					sAllProbe.insert(data[SSID][i]);
+				}
+				if (data[PROTO][i] == "HTTP" || data[PROTO][i] == "HTTP/XML"){
+					(*hIter).content.httpCounter++;
+				}
+
+				if (myHash.find(data[HWDEST][i], hIter)){
+					(*hIter).content.goTime = data[TIME][i];
+				}
+				else
+				{
+					myHash.insert(hIter, data[HWDEST][i], Content{ data[HWDEST][i], data[TIME][i], data[TIME][i] });
+				}
+				if (data[PROTO][i] == "HTTP" || data[PROTO][i] == "HTTP/XML"){
+					(*hIter).content.httpCounter++;
+				}
+			}
+			START1 = clock() - START1;
+			cout << "Hash: " << START1 << " msec" << endl;
 		}
-		else{
-			myHash.insert(hIter, data[HWSRC][i], Content{ data[HWSRC][i], data[TIME][i], data[TIME][i] });
+		catch (exception e){
+			cout << e.what() << endl;
+			data.clear();
+			memoryEnough = false;
 		}
-		if (data[SUBTYPE][i] == "Probe Request" && data[SSID][i] != ""){
-			(*hIter).content.sProbeRqSSID.insert(data[SSID][i]);
-			sAllProbe.insert(data[SSID][i]);
-		}
-		if (data[PROTO][i] == "HTTP" || data[PROTO][i] == "HTTP/XML"){
-			(*hIter).content.httpCounter++;
-		}
-		
-		if (myHash.find(data[HWDEST][i], hIter)){
-			(*hIter).content.goTime = data[TIME][i];
-		}
-		else
-		{
-			myHash.insert(hIter, data[HWDEST][i], Content{ data[HWDEST][i], data[TIME][i], data[TIME][i] });
-		}
-		if (data[PROTO][i] == "HTTP" || data[PROTO][i] == "HTTP/XML"){
-			(*hIter).content.httpCounter++;
-		}
-		
 	}
-	START1 = clock() - START1;
-	cout << "Hash: " << START1 << " msec" << endl;
+	if (!memoryEnough) // not enough memory 
+	{
+		cout << "memory is not enough" << endl;
+		vector<string> dataLine;
+		inputCSV.seekg(0, inputCSV.beg);
+		string line, match;
+		int countLine = 0;
+
+		START1 = clock();
+		/*read csv line by line*/
+		while (getline(inputCSV, line))
+		{
+			/*count lines*/
+			++countLine;
+			if (countLine % 1000000 == 0) cout << "do " << countLine << " data" << endl;
+
+			/*parse line from csv*/
+			while (line.length() > 1)
+			{
+				parse_csv(match, line);
+				dataLine.push_back(match);
+			}
+
+			if (countLine > 1)
+			{
+				dataLine[HWSRC] = dataLine[HWSRC].substr(0, dataLine[HWSRC].find_first_of(" "));
+				dataLine[HWDEST] = dataLine[HWDEST].substr(0, dataLine[HWDEST].find_first_of(" "));
+				/*use hash to sort data*/
+				if (myHash.find(dataLine[HWSRC], hIter)){
+					(*hIter).content.goTime = dataLine[TIME];
+				}
+				else{
+					myHash.insert(hIter, dataLine[HWSRC], Content{ dataLine[HWSRC], dataLine[TIME], dataLine[TIME] });
+				}
+				if (dataLine[SUBTYPE] == "Probe Request" && dataLine[SSID] != ""){
+					(*hIter).content.sProbeRqSSID.insert(dataLine[SSID]);
+					sAllProbe.insert(dataLine[SSID]);
+				}
+				if (dataLine[PROTO] == "HTTP" || dataLine[PROTO] == "HTTP/XML"){
+					(*hIter).content.httpCounter++;
+				}
+
+				if (myHash.find(dataLine[HWDEST], hIter)){
+					(*hIter).content.goTime = dataLine[TIME];
+				}
+				else
+				{
+					myHash.insert(hIter, dataLine[HWDEST], Content{ dataLine[HWDEST], dataLine[TIME], dataLine[TIME] });
+				}
+				if (dataLine[PROTO] == "HTTP" || dataLine[PROTO] == "HTTP/XML"){
+					(*hIter).content.httpCounter++;
+				}
+			}
+			dataLine.clear();
+		}
+		START1 = clock() - START1;
+		cout << "Hash: " << START1 << " msec" << endl;
+	}
+
+		
+		
+
 
 	for (hIter = myHash.begin(); hIter != myHash.end(); ++hIter){
 		fs1 << "Dev: " << (*hIter).content.device << endl;
@@ -337,5 +477,5 @@ int main(int argc, char** argv){
 	));
 
 	write_CSV(fs3, vector<string>({ "HWAddress", "Come Time", "Go Time", "Leave Time", "HTTP Packets", "HTTP Interval" }), vvCustomer);
-
+	system("pause");
 }
