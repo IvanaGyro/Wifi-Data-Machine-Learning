@@ -500,7 +500,7 @@ int main(int argc, char** argv){
 
 	//deal with output files' names
 	string fs1FileName, fs2FileName, fs3FileName, fs4FileName, fs5FileName, fs6FileName, fs7FileName;
-	fs1FileName = argv[1];
+	fs1FileName = inFileName;
 	fs1FileName = fs1FileName.substr(0, fs1FileName.find_last_of('.'));
 	fs2FileName = fs1FileName;
 	fs3FileName = fs1FileName;
