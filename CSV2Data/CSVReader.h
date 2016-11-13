@@ -88,27 +88,65 @@ void parse_csv(std::string& match, std::string& line)
 	}
 }
 
+void parse_csv_line(std::vector<std::string>& vec, std::string line)
+{
+	int begIdx, endIdx;
+
+	begIdx = 0;
+	int length = line.length();
+	while (begIdx < length - 1)
+	{
+		if (line[begIdx] == ',') ++begIdx;
+		if (line[begIdx] == '"') // in double quote
+		{
+			++begIdx;
+			endIdx = begIdx;
+			while (line[endIdx] != '"' || (line[endIdx] == '"' && line[endIdx + 1] == '"'))
+			{
+				if (line[endIdx] != '"') ++endIdx;
+				else
+				{
+					line.erase(endIdx, 1);
+					length -= 1;
+					endIdx += 1;
+				}
+			}
+			vec.push_back(line.substr(begIdx, endIdx - begIdx));
+			begIdx = endIdx + 1;
+		}
+		else   // not in double quote
+		{
+			endIdx = begIdx;
+			while (line[endIdx] != ',' && line[endIdx] != 0) ++endIdx;
+			vec.push_back(line.substr(begIdx, endIdx - begIdx));
+			begIdx = endIdx;
+		}
+	}
+}
+
 void line2vv(std::vector<std::vector<std::string>>& data, std::string& line, bool& isInit)
 {
 	std::string match;
+	std::vector<std::string> row;
 	line += static_cast<char>(0);
 
+	parse_csv_line(row, line);
+
 	if (!isInit)
-	{
-		while (line.length() > 1)
+	{	
+		for (std::vector<std::string>::iterator iter = row.begin(); iter != row.end(); ++iter)
 		{
-			parse_csv(match, line);
-			data.push_back(std::vector<std::string>(1, match));
+			data.push_back(std::vector<std::string>(1, *iter));
 		}
 		isInit = true;
 	}
 	else
 	{
 		int attrcount = 0;
-		while (line.length() > 1)
+		int maxAttrCount = data.size();
+		for (std::vector<std::string>::iterator iter = row.begin(); iter != row.end() && attrcount < maxAttrCount; ++iter)
 		{
-			parse_csv(match, line);
-			data[attrcount].push_back(match);
+			data[attrcount].push_back(*iter);
 			++attrcount;
 		}
 	}
@@ -153,6 +191,6 @@ int readCSV(std::fstream& fs, std::vector<std::vector<std::string>>& data){
 	line = ptr;
 	line2vv(data, line, isInit);
 	
+	delete[] buf;
 	return 0;
 }
-

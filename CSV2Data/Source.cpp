@@ -78,6 +78,12 @@ struct Content{
 	int minRSSI;
 };
 
+struct PieceTime
+{
+	string begin;
+	string end;
+};
+
 
 
 
@@ -293,6 +299,8 @@ int main(int argc, char** argv){
 	Hash<string, Content> myHash(126, new StringSum());
 	Hash<string, Content>::iterator hIter;
 	set<string> sAllProbe;
+	vector<PieceTime> vLost;
+	string lastPkgTime;
 
 	Content content; //Device, come, go
 
@@ -308,6 +316,7 @@ int main(int argc, char** argv){
 	
 	if (inputCSVSize >= avaliMem || flag & LINE_BY_LINE) memoryEnough = false;
 	else memoryEnough = true;
+	memoryEnough = false;
 
 	int tmpRSSI;
 
@@ -331,6 +340,10 @@ int main(int argc, char** argv){
 			START1 = clock();
 			for (int i = 1; i < data[0].size(); ++i){
 				if (i % 1000000 == 0) cout << "do " << i << " data" << endl;
+
+				if (atob<double>(data[DELTA_TIME][i]) > 30) vLost.push_back({ lastPkgTime, data[EPOCH_TIME][i] });
+				lastPkgTime = data[EPOCH_TIME][i];
+				
 				if (myHash.find(data[HWSRC][i], hIter)){
 					(*hIter).content.goTime = data[EPOCH_TIME][i];
 				}
@@ -397,6 +410,7 @@ int main(int argc, char** argv){
 		catch (exception e){
 			cout << e.what() << endl;
 			data.clear();
+			vLost.clear();
 			memoryEnough = false;
 		}
 	}
@@ -427,6 +441,10 @@ int main(int argc, char** argv){
 			{
 				dataLine[HWSRC] = dataLine[HWSRC].substr(0, dataLine[HWSRC].find_first_of(" "));
 				dataLine[HWDEST] = dataLine[HWDEST].substr(0, dataLine[HWDEST].find_first_of(" "));
+
+				if (atob<double>(dataLine[DELTA_TIME]) > 30) vLost.push_back({ lastPkgTime, dataLine[EPOCH_TIME] });
+				lastPkgTime = dataLine[EPOCH_TIME];
+
 				/*use hash to sort data*/
 				if (myHash.find(dataLine[HWSRC], hIter)){
 					(*hIter).content.goTime = dataLine[EPOCH_TIME];
@@ -496,10 +514,10 @@ int main(int argc, char** argv){
 
 
 	/*output result*/
-	fstream fs1, fs2, fs3, fs4, fs5, fs6, fs7;
+	fstream fs1, fs2, fs3, fs4, fs5, fs6, fs7, fs8;
 
 	//deal with output files' names
-	string fs1FileName, fs2FileName, fs3FileName, fs4FileName, fs5FileName, fs6FileName, fs7FileName;
+	string fs1FileName, fs2FileName, fs3FileName, fs4FileName, fs5FileName, fs6FileName, fs7FileName, fs8FileName;
 	fs1FileName = inFileName;
 	fs1FileName = fs1FileName.substr(0, fs1FileName.find_last_of('.'));
 	fs2FileName = fs1FileName;
@@ -508,6 +526,7 @@ int main(int argc, char** argv){
 	fs5FileName = fs1FileName;
 	fs6FileName = fs1FileName;
 	fs7FileName = fs1FileName;
+	fs8FileName = fs1FileName;
 	fs1FileName += "_probe_request.csv";
 	fs2FileName += "_probe_kmeans.csv";
 	fs3FileName += "_customer.csv";
@@ -515,6 +534,7 @@ int main(int argc, char** argv){
 	fs5FileName += "_go_out_IP.csv";
 	fs6FileName += "_agent.csv";
 	fs7FileName += "_rssi.csv";
+	fs8FileName += "_lost.csv";
 	fs1.open(fs1FileName, ios::out | ios::trunc);
 	//fs2.open(fs2FileName, ios::out | ios::trunc);
 	fs3.open(fs3FileName, ios::out | ios::trunc);
@@ -522,6 +542,7 @@ int main(int argc, char** argv){
 	fs5.open(fs5FileName, ios::out | ios::trunc);
 	fs6.open(fs6FileName, ios::out | ios::trunc);
 	fs7.open(fs7FileName, ios::out | ios::trunc);
+	fs8.open(fs8FileName, ios::out | ios::trunc);
 
 
 	if (fs1)
@@ -696,6 +717,19 @@ int main(int argc, char** argv){
 
 	write_CSV(fs3, vector<string>({ "HWAddress", "Come Time", "Go Time", "Stay Time", "Min RSSI", "Max RSSI", "Average RSSI", "TCP Packets", "UDP Packets", "HTTP Packets" }), vvCustomer);
 
+
+	if (fs8)
+	{
+		fs8 << "\"begin\",\"end\"" << endl;
+		for_each(vLost.begin(), vLost.end(), bind(
+			[](fstream& fs8, PieceTime lost)
+		{
+			fs8 << "\"" << lost.begin << "\",\"" << lost.end << "\"" << endl;
+		},
+			ref(fs8),
+			placeholders::_1
+			));
+	}
 
 	/* do kmeans with SSIDs of probe requests*/
 	/*
