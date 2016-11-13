@@ -301,6 +301,7 @@ int main(int argc, char** argv){
 	set<string> sAllProbe;
 	vector<PieceTime> vLost;
 	string lastPkgTime;
+	bool isFirstPkg = true;
 
 	Content content; //Device, come, go
 
@@ -341,6 +342,11 @@ int main(int argc, char** argv){
 			for (int i = 1; i < data[0].size(); ++i){
 				if (i % 1000000 == 0) cout << "do " << i << " data" << endl;
 
+				if (isFirstPkg)
+				{
+					vLost.push_back({ "", data[EPOCH_TIME][i] });
+					isFirstPkg = false;
+				} 
 				if (atob<double>(data[DELTA_TIME][i]) > 30) vLost.push_back({ lastPkgTime, data[EPOCH_TIME][i] });
 				lastPkgTime = data[EPOCH_TIME][i];
 				
@@ -404,6 +410,7 @@ int main(int argc, char** argv){
 					(*hIter).content.httpCounter++;
 				}
 			}
+			vLost.push_back({lastPkgTime, ""});
 			START1 = clock() - START1;
 			cout << "Hash: " << START1 << " msec" << endl;
 		}
@@ -412,6 +419,7 @@ int main(int argc, char** argv){
 			data.clear();
 			vLost.clear();
 			memoryEnough = false;
+			isFirstPkg = true;
 		}
 	}
 	if (!memoryEnough) // not enough memory 
@@ -442,6 +450,11 @@ int main(int argc, char** argv){
 				dataLine[HWSRC] = dataLine[HWSRC].substr(0, dataLine[HWSRC].find_first_of(" "));
 				dataLine[HWDEST] = dataLine[HWDEST].substr(0, dataLine[HWDEST].find_first_of(" "));
 
+				if (isFirstPkg)
+				{
+					vLost.push_back({ "", dataLine[EPOCH_TIME] });
+					isFirstPkg = false;
+				}
 				if (atob<double>(dataLine[DELTA_TIME]) > 30) vLost.push_back({ lastPkgTime, dataLine[EPOCH_TIME] });
 				lastPkgTime = dataLine[EPOCH_TIME];
 
@@ -508,6 +521,7 @@ int main(int argc, char** argv){
 			}
 			dataLine.clear();
 		}
+		vLost.push_back({ lastPkgTime, "" });
 		START1 = clock() - START1;
 		cout << "Hash: " << START1 << " msec" << endl;
 	}
